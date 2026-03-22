@@ -1,0 +1,44 @@
+\section{Methodology}
+\label{sec:method}
+
+We measure the information capacity of a single $d$-dimensional hidden state vector ($d = 768$) under five encoding schemes of increasing decoder complexity. All experiments use \gptwo small (12 layers, 50,257-token vocabulary, 1,024 max positions). We use two types of test data: (1) random tokens sampled uniformly from the vocabulary (seed = 42), providing maximum entropy of $\log_2 50{,}257 \approx 15.62$ bits per token, and (2) natural text (``The quick brown fox\ldots'' repeated), which has only $\sim$11--20 unique tokens and allows the model's language prior to contribute.
+
+\subsection{Scheme 1: ASCII Bit-Packing}
+\label{sec:method_ascii}
+
+We pack raw ASCII bytes into the bits of each floating-point dimension. At fp32, each dimension stores 32 bits, yielding $d \times 32 = 24{,}576$ total bits or $24{,}576 / 8 = 3{,}072$ ASCII characters. At fp16, capacity halves to 12,288 bits (1,536 characters). Decoding is deterministic bit-unpacking with zero learned parameters. This scheme establishes the absolute upper bound on raw information storage.
+
+\subsection{Scheme 2: Vocabulary ID Packing}
+\label{sec:method_vocab}
+
+We pack token IDs (integers in $[0, 50{,}256]$) into floating-point dimensions. Each token ID requires $\ceil{\log_2 50{,}257} = 16$ bits, so an fp32 dimension stores $\floor{32/16} = 2$ token IDs. Total capacity is $768 \times 2 = 1{,}536$ tokens at fp32 and 768 tokens at fp16. Decoding is deterministic unpacking. We also test superposition encoding, where $m > d$ token IDs are encoded via random projections $\vh = \mA \vt$ with $\mA \in \sR^{d \times m}$ and recovery via the pseudo-inverse $\hat{\vt} = \mA^+ \vh$.
+
+\subsection{Scheme 3: Vector Walk Encoding}
+\label{sec:method_vecwalk}
+
+We assign each token a dedicated subspace of the $d$-dimensional vector. With 1 dimension per token, the magnitude of dimension $i$ encodes the token ID at position $i$, storing up to 768 tokens losslessly (equivalent to fp16 vocab packing). With 2 dimensions per token, each token uses a magnitude-direction pair, storing 384 tokens. Decoding reads off magnitudes directly.
+
+\subsection{Scheme 4: Unembedding-Based Decoding}
+\label{sec:method_unembed}
+
+We partition the hidden state $\vh \in \sR^d$ into $\numtok$ chunks of $d/\numtok$ dimensions each. A shared linear projection $\mP \in \sR^{\dmodel \times (d/\numtok)}$ maps each chunk to the full model dimension, and the frozen unembedding matrix $\mW_U \in \sR^{\vocabsize \times \dmodel}$ decodes each projected chunk to a vocabulary distribution:
+\begin{equation}
+    \hat{y}_i = \argmax \left( \mW_U \cdot \mP \cdot \vh_{[i \cdot (d/\numtok) : (i+1) \cdot (d/\numtok)]} \right), \quad i = 1, \ldots, \numtok.
+    \label{eq:unembed}
+\end{equation}
+The vector $\vh$ is optimized per sample; the projection $\mP$ is shared across all chunks and samples. This scheme has $\dmodel \times (d/\numtok)$ learnable parameters in the projection matrix. We test $\numtok \in \{1, 10, 50, 100, 200, 384, 768\}$ with random tokens.
+
+\subsection{Scheme 5: Transformer Layer Decoding}
+\label{sec:method_layer}
+
+We optimize a hidden state vector (or $\nummem$ vectors) via gradient descent and decode through frozen transformer components.
+
+\para{5a: Single layer decoder.} A single vector $\vh \in \sR^d$ is broadcast to all $\numtok$ positions, added to learned position embeddings, and decoded through one frozen transformer layer followed by layer normalization and the unembedding matrix. We test layers 0 (first), 6 (middle), and 11 (last). The vector is optimized for 5,000 steps using Adam (lr = 0.01, cosine schedule). All decoder parameters are frozen.
+
+\para{5b: Full model decoder.} A single \memvec vector is prepended to the input sequence and decoded through all 12 frozen \gptwo layers. The \memvec vector is optimized for 5,000 steps with the same optimizer settings. This follows the approach of \citet{kuratov2025cramming}, adapted to \gptwo.
+
+\para{5c: Multi-vector scaling.} We prepend $\nummem \in \{1, 2, 4, 8, 16, 32\}$ independently optimized \memvec vectors, targeting 500 random tokens. Each vector has $d = 768$ learnable parameters, for a total of $\nummem \times d$ parameters. We report accuracy, total bits stored, and bits per learnable parameter.
+
+\subsection{Evaluation Metrics}
+
+We report: (1) \textbf{accuracy}---fraction of tokens decoded correctly; (2) \textbf{bits stored}---number of correctly decoded tokens $\times$ $\ceil{\log_2 \vocabsize}$, measuring recoverable information; (3) \textbf{bits per dimension} ($\bpd$)---bits stored divided by $d$; and (4) \textbf{bits per parameter} ($\bpp$)---bits stored divided by total learnable parameters, measuring encoding efficiency. Schemes 1--3 are verified lossless (100\% recovery). For schemes 4--5, we use random tokens to prevent the model's language prior from inflating capacity measurements.

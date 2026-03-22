@@ -1,0 +1,821 @@
+You are an academic paper writer. Generate a complete NEURIPS style paper
+based on the experiment results provided.
+
+════════════════════════════════════════════════════════════════════════════════
+                         IMPORTANT: BEFORE YOU START
+════════════════════════════════════════════════════════════════════════════════
+
+Before writing any content, you MUST complete these steps:
+
+1. READ THE SKILL: Review the paper-writer skill at .claude/skills/paper-writer/SKILL.md
+2. READ THE STYLE GUIDE: Study templates/paper_writing/lab_style_guide.md carefully
+3. REVIEW EXAMPLES: Browse paper_examples/ for formatting and language patterns:
+   - Look at sections/1.introduction.tex for language style
+   - Look at tables/*.tex for table formatting
+   - Look at commands/*.tex for macro usage
+4. VERIFY COMMAND TEMPLATES: Command templates (math.tex, general.tex, macros.tex) are pre-copied to paper_draft/commands/
+
+CRITICAL: Reference example papers for FORMATTING and LANGUAGE STYLE only.
+Do NOT copy content, phrasing, or narrative structure from the example papers.
+The examples are in a different research domain - focus only on presentation style.
+
+════════════════════════════════════════════════════════════════════════════════
+                            EXPERIMENT REPORT
+════════════════════════════════════════════════════════════════════════════════
+
+# How Much Can You Store in a Hidden State?
+
+## 1. Executive Summary
+
+We systematically measured the information storage capacity of a single transformer hidden state vector (d=768, GPT-2) under five encoding schemes of increasing decoder complexity: ASCII bit-packing, LLM vocabulary encoding, vector walk encoding, unembedding-based decoding, and transformer layer decoding. **The key finding is that raw bit-packing without any decoder stores the most information (24,576 bits / 3,072 ASCII chars at fp32), while model-based decoders store far less in absolute bits but leverage the model&#39;s learned structure.** With random tokens (no language model advantage), a single [mem] vector decoded through the full GPT-2 model can perfectly recover ~10 tokens and ~74% of 50 tokens (~578 bits). Scaling to 32 [mem] vectors achieves 99.4% accuracy on 500 random tokens (7,762 bits), with peak efficiency of 0.46 bits per learnable parameter at 16 vectors.
+
+## 2. Goal
+
+**Research Question**: How does the information capacity of a transformer hidden state vary across encoding schemes, from naive bit-packing (ASCII, vocab IDs) through geometric encodings (vector walks) to model-based decoding (unembedding matrix, transformer layers)?
+
+**Why This Matters**: Hidden states are the fundamental information bottleneck in transformers. Understanding their capacity under different decoding schemes informs:
+- Soft prompt and memory token design (how much can a [mem] token store?)
+- Model compression (what&#39;s the theoretical limit for state compression?)
+- Mechanistic interpretability (how much info do hidden states really carry?)
+
+## 3. Data Construction
+
+### Test Inputs
+
+We used two types of test data:
+
+1. **Natural text** (repetitive): &#34;The quick brown fox jumps over the lazy dog&#34; repeated ~50x. This text has only ~11-20 unique tokens, allowing the model&#39;s language modeling ability to contribute significantly.
+
+2. **Random tokens**: Uniformly sampled from GPT-2&#39;s vocabulary (50,257 tokens) with seed=42. These have maximum entropy (~15.62 bits/token), isolating the pure storage capacity of the hidden state from the model&#39;s language priors.
+
+### Model
+- **GPT-2 small**: d_model=768, vocab_size=50,257, 12 layers, max_position=1024
+- Hardware: 4x NVIDIA RTX A6000 (49 GB each)
+
+## 4. Experiment Description
+
+### Encoding Schemes Tested
+
+| # | Encoding | Decoder | Decoder Params |
+|---|----------|---------|----------------|
+| 1 | ASCII bit-packing | None (direct unpack) | 0 |
+| 2 | Vocab ID packing | None (direct unpack) | 0 |
+| 3 | Vector walk (magnitude = token ID) | Direct readoff | 0 |
+| 4 | Subspace partition + learned projection | Linear proj + unembed matrix | dims_per_tok × d_model |
+| 5a | Single vector → 1 transformer layer | Frozen layer + LN + unembed | 0 (layer is frozen) |
+| 5b | [mem] vector → full frozen model | Full GPT-2 (frozen) | 0 (model is frozen) |
+| 5c | Multiple [mem] vectors → full model | Full GPT-2 (frozen) | 0 (model is frozen) |
+
+### Methodology
+
+For **schemes 1-3** (no decoder): Pack information into a d=768 dimensional vector using deterministic encoding. Verify lossless decode.
+
+For **scheme 4** (unembedding): Partition the single vector h into n chunks of (d/n) dimensions each. Learn a shared linear projection from chunk-space to d_model-space, then decode through the frozen unembedding matrix W_U. The vector h is optimized per-sample; the projection is shared.
+
+For **schemes 5a-c** (transformer layer/model): Optimize a single vector (or k vectors) via gradient descent for 5,000 steps using Adam (lr=0.01, cosine schedule). The vector is broadcast to all n positions, added to position embeddings, and decoded through frozen transformer layer(s) + layer norm + unembedding.
+
+### Hyperparameters
+
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| Optimizer | Adam | Standard for per-sample optimization |
+| Learning rate | 0.01-0.05 | Grid searched |
+| Steps | 3,000-5,000 | Until convergence (monitored loss) |
+| Scheduler | Cosine annealing | Smooth convergence |
+| Precision | fp32 | Maximum capacity |
+| Seed | 42 | Reproducibility |
+
+## 5. Key Findings
+
+### Result 1: Theoretical Capacity Bounds
+
+For a 768-dimensional vector at different precisions:
+
+| Precision | Total Bits | ASCII Chars | Vocab Tokens |
+|-----------|-----------|-------------|--------------|
+| fp32 | 24,576 | 3,072 | 1,574 |
+| fp16 | 12,288 | 1,536 | 787 |
+| int8 | 6,144 | 768 | 393 |
+
+**ASCII (fp32)** stores the most raw information: 24,576 bits = 3,072 bytes. This is the absolute upper bound — each dimension stores 32 independent bits.
+
+### Result 2: No-Decoder Schemes (Verified Lossless)
+
+| Scheme | Tokens/Chars Stored | Bits | Lossless? |
+|--------|-------------------|------|-----------|
+| ASCII fp32 | 3,072 chars | 24,576 | Yes |
+| ASCII fp16 | 1,536 chars | 12,288 | Yes |
+| Vocab ID fp32 | 1,536 tokens | ~24,000 | Yes |
+| Vocab ID fp16 | 768 tokens | ~12,000 | Yes |
+| Vector Walk (1 dim/tok) | 768 tokens | ~12,000 | Yes |
+| Vector Walk (2 dims/tok) | 384 tokens | ~6,000 | Yes |
+
+**Key insight**: Without a decoder, capacity is purely determined by bits per dimension / bits per token. Vocab encoding with fp32 packs 2 tokens per dimension (each needing 16 bits). Vector walk encoding with 1 dim/token is equivalent to vocab encoding at fp16.
+
+### Result 3: Superposition Encoding Fails
+
+Encoding multiple tokens in overlapping subspaces via random projections (superposition) fails completely: 0% accuracy at all overload ratios tested (0.5x to 4x d_model). The interference between randomly-projected token IDs (which are large integers, 0-50,256) is too severe for simple dot-product recovery. This contrasts with the success of superposition for sparse binary features (Elhage et al., 2022) — token IDs are neither sparse nor binary.
+
+**However**, compressed sensing via least-squares pseudo-inverse works perfectly when n_tokens ≤ d_model, achieving 100% accuracy for 50-500 repetitive tokens (with only 11 unique values). This shows the critical role of signal structure.
+
+### Result 4: Unembedding-Based Decoding (Random Tokens)
+
+Using a shared learned projection from subspace chunks to full d_model, followed by the frozen unembedding matrix:
+
+| Tokens | Dims/Token | Accuracy | Bits Stored |
+|--------|-----------|----------|-------------|
+| 1 | 768 | 100% | 16 |
+| 10 | 76 | 100% | 156 |
+| 50 | 15 | 100% | 781 |
+| 100 | 7 | 100% | 1,562 |
+| 200 | 3 | 100% | 3,123 |
+| 384 | 2 | 29.2% | 1,749 |
+| 768 | 1 | 0.4% | 47 |
+
+**Key finding**: The unembedding matrix can decode tokens from as few as 3 dimensions per token with a learned linear projection (200 tokens, 100% accuracy, 3,123 bits). This works because the projection learns to map 3D chunks to the nearest token embedding direction. At 2 dims/token, accuracy drops sharply to 29% — the projection can&#39;t reliably distinguish 50,257 tokens from a 2D space.
+
+### Result 5: One Transformer Layer Decoder (Random Tokens)
+
+A single broadcast vector decoded through one frozen transformer layer:
+
+| Layer | n=10 | n=50 | n=100 | n=200 | n=500 |
+|-------|------|------|-------|-------|-------|
+| 0 (first) | 100% | 14% | 1% | 0% | 0% |
+| 6 (middle) | 100% | 18% | 3% | 0.5% | 0% |
+| 11 (last) | 100% | 24% | 5% | 2% | 0% |
+
+**Key finding**: A single transformer layer adds very little capacity beyond position embeddings. The single broadcast vector provides the same input at every position; the only differentiating signal comes from position embeddings (which are added). The layer&#39;s attention mechanism sees identical queries/keys at all positions (modulo position embeddings), severely limiting its ability to produce different outputs at different positions. Later layers perform slightly better, possibly because their attention patterns are more position-sensitive.
+
+### Result 6: Full Model Decoder (Random Tokens)
+
+Single [mem] vector prepended to the sequence, decoded through all 12 GPT-2 layers:
+
+| Tokens | Accuracy | Tokens Correct | Bits |
+|--------|----------|----------------|------|
+| 10 | 100% | 10 | 156 |
+| 50 | 74% | 37 | 578 |
+| 100 | 10% | 9 | 156 |
+| 200 | 5.5% | 10 | 172 |
+| 300 | 0.7% | 2 | 31 |
+| 500+ | ~0% | 0 | 0 |
+
+**Key finding**: The full model is dramatically better than one layer (74% at n=50 vs 24%), but still limited to ~10-50 tokens with a single vector. Peak information is ~578 bits at n=50 — only 2.4% of the theoretical fp32 maximum (24,576 bits). The model uses its 12 layers of self-attention to differentiate positions, but a single vector fundamentally limits diversity.
+
+### Result 7: Multi-Vector Scaling (Random Tokens)
+
+How capacity scales with multiple [mem] vectors (targeting 500 random tokens):
+
+| Mem Vectors | Total Params | Accuracy | Bits Stored | Bits/Param |
+|------------|-------------|----------|-------------|------------|
+| 1 | 768 | 0.2% | 16 | 0.02 |
+| 2 | 1,536 | 0.8% | 62 | 0.04 |
+| 4 | 3,072 | 9.2% | 718 | 0.23 |
+| 8 | 6,144 | 30.8% | 2,405 | 0.39 |
+| 16 | 12,288 | 72.4% | 5,653 | **0.46** |
+| 32 | 24,576 | 99.4% | 7,762 | 0.32 |
+
+**Key finding**: Peak efficiency is 0.46 bits per learnable parameter at 16 vectors. At 32 vectors (24,576 total fp32 parameters = 24,576 × 32 = 786,432 bits of raw storage), only 7,762 bits are usefully stored — a utilization of 0.99%. This is consistent with Kuratov et al.&#39;s finding that capacity utilization is only 5-30% of theoretical maximum.
+
+### Result 8: Natural vs Random Text
+
+With natural (repetitive) text, the full model achieves 100% accuracy on up to 1,023 tokens — dramatically more than the 50 tokens possible with random tokens. The model&#39;s language modeling prior provides the vast majority of the information; the [mem] vector only needs to encode the &#34;surprise&#34; — which token sequence to generate from a familiar distribution.
+
+## 5. Result Analysis
+
+### The Decoder Complexity Spectrum
+
+![Decoder Complexity Spectrum](results/plots/decoder_complexity_spectrum.png)
+
+The results reveal a paradox: **simpler encoding schemes store more raw bits, but model-based schemes store more useful information per bit**.
+
+| Complexity | Raw Bits | Tokens (random) | Bits/Dim |
+|------------|----------|-----------------|----------|
+| None (ASCII fp32) | 24,576 | N/A (chars only) | 32.0 |
+| None (Vocab fp32) | ~24,000 | 1,536 | 31.2 |
+| Shared proj + unembed | 3,123 | 200 | 4.1 |
+| 1 frozen layer | 156 | 10 | 0.2 |
+| Full model (1 vec) | 578 | ~37 | 0.75 |
+| Full model (32 vecs) | 7,762 | ~497 | 0.32 |
+
+### Why Can&#39;t Model-Based Decoders Match Raw Bit-Packing?
+
+The fundamental issue is that model-based decoders are **not designed for arbitrary information storage**. They&#39;re optimized for natural language, creating a bottleneck:
+
+1. **Softmax bottleneck** (Yang et al., 2018): The unembedding matrix has rank d_model &lt;&lt; vocab_size. It can&#39;t represent arbitrary joint distributions over tokens.
+
+2. **Position ambiguity**: Broadcasting a single vector to n positions provides identical input. Only position embeddings differentiate positions, but these are additive and limited.
+
+3. **Attention collapse**: With identical inputs at all positions, self-attention computes nearly identical outputs everywhere, providing little position-dependent information.
+
+### Comparison to Prior Work
+
+- **Kuratov et al. (2025)**: Achieved 1,568 tokens with Llama-3.1-8B (d=4096) on natural text. Our GPT-2 result (100% on 1,023 natural tokens, single [mem] vector) is consistent when accounting for model size and text entropy.
+
+- **Theoretical bound**: Kuratov computed d × b / log₂(V) ≈ 1,931 tokens for Llama-3.1-8B at fp16. Our theoretical bound for GPT-2 at fp32 is 1,574 tokens, matching their formula.
+
+- **Capacity utilization**: Our 0.46 bits/param peak is lower than Kuratov&#39;s 5-30% utilization, likely because GPT-2 is a smaller, less capable model.
+
+### Surprises
+
+1. **One layer barely helps**: Despite having ~7M parameters, a single frozen transformer layer only allows reliable storage of ~10 random tokens — barely better than the position embeddings alone provide.
+
+2. **The 3-dim threshold**: The unembedding can reliably decode random tokens from 3 dimensions per token but not 2. This likely reflects the geometry of the embedding space — 50,257 token embeddings in 768-dim space have enough near-neighbor separation at 3 dims but not 2.
+
+3. **Superposition completely fails**: Unlike sparse feature superposition (Elhage et al.), token-ID superposition fails because token IDs are dense high-entropy signals, not sparse binary features.
+
+## 6. Limitations
+
+1. **Model size**: We only tested GPT-2 (768-dim). Larger models (Llama-3.1-8B, 4096-dim) likely show better utilization ratios.
+
+2. **Optimization budget**: 5,000 steps may not be sufficient. Kuratov et al. used 5,000 steps but with larger learning rates and different optimizers.
+
+3. **Single seed**: Most experiments used a single random seed. Results may vary with different token sequences.
+
+4. **Natural text was highly repetitive**: Our natural text experiments used extremely repetitive input (~11 unique tokens), inflating apparent capacity. Diverse natural text would show intermediate results.
+
+5. **Position embedding limit**: GPT-2&#39;s 1024 max position constrains the maximum sequence length testable.
+
+## 7. Conclusions
+
+### Summary
+
+**ASCII encoding** stores the most raw information in a hidden state: 3,072 bytes (24,576 bits) at fp32 in a 768-dim vector. **LLM vocabulary encoding** stores 1,536 tokens at fp32 (2 per dimension). **Vector walk encoding** matches vocab encoding when using 1 dimension per token. **Unembedding-based decoding** with a learned projection achieves 100% accuracy for 200 random tokens (3 dims/tok) but fails at 2 dims/tok. **A single transformer layer** adds minimal capacity (~10 tokens) due to position ambiguity. The **full frozen model** stores ~50 tokens at 74% accuracy from a single vector, scaling to 500 tokens with 32 vectors at 99.4% accuracy.
+
+### Answer to Each Research Question
+
+1. **ASCII encoding**: d × 32 / 8 = **3,072 bytes** at fp32, verified lossless.
+
+2. **LLM vocab encoding**: d × 32 / ⌈log₂V⌉ = **1,536 tokens** at fp32, verified lossless.
+
+3. **Fixed vector walk (magnitude=token, direction=position)**: With 1 dim/token: **768 tokens** (lossless). With 2 dims/token: **384 tokens** (lossless). Superposition fails completely.
+
+4. **Using unembeddings**: With a shared linear projection (3 dims/token → d_model → unembed): **200 random tokens** at 100%. With bag-of-tokens (single vector → unembed): recovers up to ~768 unique token identities but no positions.
+
+5. **One transformer layer as decoder**: Only **~10 random tokens** reliably (single broadcast vector). The full model (12 layers) stores **~37-50 tokens** from one vector, or **~500 tokens** from 32 vectors.
+
+### The Capacity-Complexity Tradeoff
+
+There is a clear tradeoff: simple schemes pack more raw bits, but model-based schemes leverage learned structure to store *meaningful* tokens at lower raw-bit cost. The full model decoder is most powerful for natural text (where it leverages language priors), but for random tokens — pure information storage — raw bit-packing is vastly more efficient.
+
+## 8. Next Steps
+
+1. **Larger models**: Test Llama-3.2-1B, Pythia-2.8B to see how capacity scales with d_model.
+2. **Longer optimization**: Test 10K-50K steps with warm restarts.
+3. **Diverse natural text**: Test with PG-19 or WikiText to measure realistic capacity.
+4. **Learned vector walk codebook**: Optimize direction codebook jointly with encoding.
+5. **Hybrid schemes**: Use bit-packing for token IDs and model layers for sequence ordering.
+
+## 9. References
+
+1. Kuratov et al. (2025). &#34;Cramming 1568 Tokens into a Single Vector.&#34; arXiv:2502.13063.
+2. Elhage et al. (2022). &#34;Toy Models of Superposition.&#34; arXiv:2209.10652.
+3. Belrose et al. (2023). &#34;Eliciting Latent Predictions with the Tuned Lens.&#34; arXiv:2303.08112.
+4. Pal et al. (2023). &#34;Future Lens.&#34; arXiv:2311.04897.
+5. Yang et al. (2018). &#34;Breaking the Softmax Bottleneck.&#34; arXiv:1711.03953.
+6. Loshchilov et al. (2024). &#34;nGPT: Normalized Transformer on the Hypersphere.&#34; arXiv:2410.01131.
+
+## Appendix: Environment
+
+- Python 3.12.8
+- PyTorch 2.10.0+cu128
+- Transformers 5.3.0
+- GPU: NVIDIA RTX A6000 (49 GB)
+- Random seed: 42
+
+
+════════════════════════════════════════════════════════════════════════════════
+                            RESEARCH PLAN
+════════════════════════════════════════════════════════════════════════════════
+
+# Research Plan: How Much Can You Store in a Hidden State?
+
+## Motivation &amp; Novelty Assessment
+
+### Why This Research Matters
+Hidden states are the fundamental communication channel in transformers — every layer reads from and writes to the residual stream. Understanding the information capacity of a single hidden state vector under different encoding schemes tells us (a) how efficiently transformers use their bandwidth, (b) what&#39;s the theoretical ceiling for methods like memory tokens, soft prompts, and state compression, and (c) how decoder complexity trades off against storage capacity.
+
+### Gap in Existing Work
+Kuratov et al. (2025) measured capacity empirically using per-sample gradient optimization with a full frozen LLM as decoder — achieving 1568 tokens in a 4096-dim vector. But no one has systematically compared the simpler encoding schemes that form the spectrum from &#34;no learned decoder&#34; to &#34;full transformer decoder&#34;:
+- Raw ASCII bit-packing (no decoder needed)
+- Vocabulary ID packing (no decoder needed)
+- Vector walk encoding (simple geometric decoder)
+- Unembedding matrix decoding (one matrix multiply)
+- Single transformer layer decoding (moderate decoder)
+
+### Our Novel Contribution
+A systematic, apples-to-apples comparison of 5 encoding schemes across the decoder-complexity spectrum, measuring information capacity (in bits and tokens) for the same model and hidden state dimensionality. This reveals how much of the capacity comes from the encoding scheme vs. the decoder.
+
+### Experiment Justification
+- **Exp 1 (ASCII)**: Baseline — pure bit-packing, no model knowledge. Sets the floor.
+- **Exp 2 (Vocab)**: Uses model&#39;s vocabulary but naive packing. Tests if vocab structure helps.
+- **Exp 3 (Vector walks)**: Novel geometric encoding. Tests if direction/magnitude separation helps.
+- **Exp 4 (Unembedding)**: Uses model&#39;s learned mapping. Tests single-matrix decoding.
+- **Exp 5 (Transformer layer decoder)**: Uses one transformer layer. Tests if moderate compute helps.
+
+## Research Question
+How does the information capacity of a transformer hidden state vector vary across encoding schemes of increasing decoder complexity, from raw ASCII bit-packing to using a transformer layer as decoder?
+
+## Hypothesis Decomposition
+1. ASCII encoding stores d_model × precision_bits / 8 characters (pure information-theoretic bound)
+2. LLM vocabulary encoding stores d_model × precision_bits / log2(|V|) tokens (more info per token than ASCII)
+3. Vector walk encoding can exceed naive packing by using geometric structure (direction for position, magnitude for token ID)
+4. Unembedding-based decoding leverages learned token geometry to store more tokens than naive packing
+5. A single transformer layer decoder significantly increases capacity over unembedding alone, approaching but not matching Kuratov et al.&#39;s full-model results
+
+## Proposed Methodology
+
+### Model
+GPT-2 (small, 768-dim hidden states, 50257 vocab) — well-understood, fits easily on GPU, good for systematic study. We&#39;ll also test Pythia-410M for validation.
+
+### Encoding Schemes
+
+**1. ASCII Encoding**
+- Pack ASCII bytes (7 bits each) into float32 vector dimensions
+- Each float32 can store 32 bits = 4 ASCII characters (with quantization)
+- For fp16: 16 bits = 2 ASCII characters per dimension
+- Theoretical: 768 × 32 / 7 ≈ 3510 ASCII chars (fp32), 768 × 16 / 7 ≈ 1755 (fp16)
+- Decode: unpack bits, convert to characters
+
+**2. LLM Vocabulary Encoding**
+- Pack token IDs into vector dimensions
+- Each fp32 stores floor(32 / log2(50257)) = floor(32/15.62) = 2 token IDs per dim
+- Theoretical: 768 × 2 = 1536 tokens (fp32), 768 × 1 = 768 tokens (fp16)
+- Decode: unpack, lookup token ID
+
+**3. Vector Walk Encoding**
+- Divide d-dimensional space into k subspaces
+- In each subspace: direction encodes position, magnitude encodes token ID
+- Use learned or fixed codebook of directions
+- Capacity depends on angular resolution and magnitude quantization
+- Theory: with k subspaces of dim d/k, can encode k tokens with position
+
+**4. Unembedding Decoding**
+- Encode: place tokens using the model&#39;s embedding matrix
+- Sum token embeddings (possibly with position weights) into single vector
+- Decode: multiply by unembedding matrix, take argmax for each position
+- Use techniques from logit lens / tuned lens
+- Capacity limited by linear separability of summed embeddings
+
+**5. Single Transformer Layer Decoder**
+- Encode: optimize a single vector via gradient descent
+- Decode: pass through one transformer layer + unembedding
+- Compare frozen random layer vs. actual model layer
+- This is a simplified version of Kuratov et al.&#39;s approach
+
+### Evaluation Metrics
+- **Bits stored**: Total recoverable information in bits
+- **Tokens stored**: Number of tokens perfectly decoded (accuracy=1.0)
+- **Capacity utilization**: Fraction of theoretical maximum
+- **Bits per dimension**: Efficiency measure
+
+### Baselines
+- Theoretical maximum: d × b / log2(|V|) for token capacity
+- Kuratov et al. results (from paper): 1568 tokens for Llama-3.1-8B (4096-dim)
+- Random chance
+
+## Expected Outcomes
+- ASCII &lt; Vocab &lt; Vector Walk &lt; Unembedding &lt; Transformer Layer
+- The gap between each step quantifies the value of decoder complexity
+- Unembedding should provide a big jump over naive encoding due to learned geometry
+- Transformer layer should approach but not match full-model optimization
+
+## Timeline
+- Phase 1 (Planning): 20 min ✓
+- Phase 2 (Setup): 10 min
+- Phase 3 (Implementation): 60 min
+- Phase 4 (Experiments): 60 min
+- Phase 5 (Analysis): 30 min
+- Phase 6 (Documentation): 20 min
+
+## Potential Challenges
+- Vector walk encoding is novel — may need iteration on the specific scheme
+- Gradient optimization for single-layer decoder may be tricky to tune
+- Need to handle numerical precision carefully for bit-packing schemes
+
+
+════════════════════════════════════════════════════════════════════════════════
+                          LITERATURE REVIEW
+════════════════════════════════════════════════════════════════════════════════
+
+# Literature Review: How Much Can You Store in a Hidden State?
+
+## Research Area Overview
+
+This review surveys work on the information capacity of hidden states in neural networks, particularly transformers and LLMs. The central question is: how much information can be encoded in a single hidden-state vector, and how does the encoding scheme affect capacity? We organize findings around five themes: (1) theoretical and empirical capacity limits, (2) superposition and compressed representations, (3) decoding hidden states via unembedding/lens techniques, (4) what hidden states encode beyond next-token, and (5) steganographic encoding in LLM outputs.
+
+---
+
+## Key Papers
+
+### Paper 1: Cramming 1568 Tokens into a Single Vector (Kuratov et al., 2025)
+- **ArXiv**: 2502.13063 (ACL 2025, Oral)
+- **Key Contribution**: Directly measures how many tokens can be losslessly compressed into a single input embedding vector using per-sample optimization of trainable [mem] vectors with a frozen LLM decoder.
+- **Methodology**: Prepend trainable vectors to frozen LLM input, optimize via cross-entropy loss for 5000 steps. Measure decoding capacity, token gain, and information gain (cross-entropy reduction).
+- **Key Results**:
+  - Llama-3.1-8B: 1568 tokens from a single 4096-dim vector (theoretical max: ~1931 tokens for 16-bit floats)
+  - Capacity utilization: only ~5-30% of theoretical maximum is used
+  - Information gain is constant per model regardless of text type (natural vs random)
+  - Capacity scales linearly with number of [mem] vectors (7168 tokens from 16 vectors with Llama-3.2-1B)
+  - Works for non-transformer architectures too (Mamba SSMs show same pattern)
+  - Compression limit determined by cross-entropy, not text length
+- **Datasets Used**: PG-19 (books), AO3 fanfics (post-Oct 2024), random word sequences from GloVe vocabulary
+- **Code Available**: https://github.com/yurakuratov/hidden_capacity
+- **Relevance**: **Most directly relevant paper**. Provides empirical upper bounds on hidden state capacity across encoding schemes. The gap between theoretical (d_model × b / log2|V|) and practical capacity is the central finding.
+
+### Paper 2: Toy Models of Superposition (Elhage et al., 2022)
+- **ArXiv**: 2209.10652 (Anthropic)
+- **Key Contribution**: Demonstrates that neural networks store more features than they have dimensions via &#34;superposition,&#34; exploiting feature sparsity. Provides phase diagrams showing when superposition occurs.
+- **Methodology**: Train small ReLU autoencoders (x → W^T ReLU(Wx + b)) on synthetic sparse data. Vary feature importance and sparsity. Analyze learned weight geometry.
+- **Key Results**:
+  - With dense features: model learns orthogonal basis for top-k features (PCA-like)
+  - With sparse features: model stores MORE features than dimensions using non-orthogonal directions
+  - Phase change: transition from dedicated to superposed representations depends on sparsity
+  - Geometric structure: features organize as uniform polytopes (pentagons, tetrahedra)
+  - Computation can occur in superposition (e.g., absolute value circuits)
+  - Hypothesis: real networks are &#34;noisily simulating&#34; much larger sparse networks
+- **Code Available**: https://github.com/anthropics/toy-models-of-superposition
+- **Relevance**: Provides theoretical framework for understanding WHY hidden states can store more information than their dimensionality suggests. Superposition is the mechanism enabling high-capacity encoding.
+
+### Paper 3: Eliciting Latent Predictions with the Tuned Lens (Belrose et al., 2023)
+- **ArXiv**: 2303.08112
+- **Key Contribution**: Trains per-layer affine transformations (&#34;translators&#34;) to decode hidden states into vocabulary distributions, fixing the logit lens&#39;s unreliability and bias.
+- **Methodology**: For each layer l, learn affine transform (A_l, b_l) minimizing KL divergence between tuned lens output and final layer logits. Uses distillation loss to avoid learning extra information.
+- **Key Results**:
+  - Substantially lower perplexity than logit lens across all layers
+  - Unbiased: marginal distribution matches final layer (unlike logit lens which has 4-5 bits bias)
+  - Representational drift between layers is smooth but significant
+  - Translators transfer across nearby layers and to fine-tuned model variants
+  - Features influential on tuned lens are also influential on the model (causal basis extraction)
+  - Prediction trajectory converges monotonically to final output
+- **Code Available**: https://github.com/AlignmentResearch/tuned-lens
+- **Relevance**: Provides the key tool for **unembedding-based decoding** of hidden states. Shows that different layers encode information in drifting bases, requiring learned translators rather than raw unembedding.
+
+### Paper 4: Future Lens (Pal et al., 2023)
+- **ArXiv**: 2311.04897 (CoNLL 2023)
+- **Key Contribution**: Shows that a single hidden state at position t encodes information about tokens at positions t+2, t+3, etc. — not just the immediate next token.
+- **Methodology**: Three methods on GPT-J-6B: (1) linear probes predicting future hidden states, (2) fixed-prompt causal intervention (transplanting hidden states), (3) learned-prompt causal intervention.
+- **Key Results**:
+  - Learned prompt method: 48.4% accuracy predicting N=1 token ahead from a single hidden state
+  - 43.7% for N=2, 46.9% for N=3 (well above bigram baseline of ~20%)
+  - Peak accuracy at middle layers (layer 14 of 28), NOT final layer
+  - Information is broadly encoded, not just for named entities
+  - Accuracy correlates with model confidence in next-token prediction
+- **Code Available**: https://github.com/KoyenaPal/future-lens
+- **Relevance**: Demonstrates that hidden states store MULTI-TOKEN information, directly relevant to capacity questions. The decoder choice (linear vs learned prompt using transformer layers) dramatically affects what can be extracted.
+
+### Paper 5: Transformer Feed-Forward Layers Are Key-Value Memories (Geva et al., 2021)
+- **ArXiv**: 2012.14913 (EMNLP 2021)
+- **Key Contribution**: Shows FFN layers operate as key-value memories where keys match input patterns and values induce vocabulary distributions.
+- **Relevance**: Explains part of HOW information is stored in hidden states — via distributed key-value patterns in FFN weights, with lower layers storing shallow patterns and upper layers storing semantic ones.
+
+### Paper 6: Analyzing Transformers in Embedding Space (Dar et al., 2023)
+- **ArXiv**: 2209.02535 (ACL 2023)
+- **Key Contribution**: Projects all transformer parameters (attention, MLP weights) into vocabulary space for zero-pass interpretability.
+- **Relevance**: Provides methodology for understanding hidden states through the lens of vocabulary encoding, where weight matrices are interpretable as vocabulary-space operations.
+
+### Paper 7: Information-Theoretic Probing with MDL (Voita &amp; Titov, 2020)
+- **ArXiv**: 2003.12298 (EMNLP 2020)
+- **Key Contribution**: Recasts probing as compression — measures bits needed to describe labels given representations. More stable and informative than accuracy-based probing.
+- **Relevance**: Provides proper information-theoretic framework for measuring how much information hidden states encode about specific properties.
+
+### Paper 8: How Much Do Language Models Memorize? (Morris et al., 2025)
+- **ArXiv**: 2505.24832
+- **Key Contribution**: Shows GPT-style transformers store approximately 3.5-4 bits of information per model parameter.
+- **Relevance**: Provides per-parameter capacity bounds, complementing Kuratov et al.&#39;s per-vector bounds.
+
+### Paper 9: On the Optimal Memorization Capacity of Transformers (Kajitsuka &amp; Sato, 2024)
+- **ArXiv**: 2409.17677
+- **Key Contribution**: Proves transformers can memorize N input sequences with O(sqrt(N)) parameters in next-token prediction, and shows this is optimal up to log factors.
+- **Relevance**: Theoretical capacity bounds for transformers.
+
+### Paper 10: Breaking the Softmax Bottleneck (Yang et al., 2018)
+- **ArXiv**: 1711.03953 (ICLR 2018)
+- **Key Contribution**: Shows hidden state dimension (d ~ 10^2-3) is much smaller than vocabulary (|V| ~ 10^5), creating a rank-deficient softmax bottleneck limiting expressiveness.
+- **Relevance**: Identifies a fundamental constraint on how much the hidden state can express when decoded through the unembedding matrix.
+
+### Paper 11: Patchscopes (Ghandeharioun et al., 2024)
+- **ArXiv**: 2401.06102
+- **Key Contribution**: Unifies logit lens, tuned lens, and probing under a framework that patches hidden states between inference passes.
+- **Relevance**: Shows the LLM itself can be used as a decoder for hidden states, often outperforming vocabulary projection and probing methods.
+
+### Paper 12: nGPT: Normalized Transformer on the Hypersphere (Loshchilov et al., 2024)
+- **ArXiv**: 2410.01131
+- **Key Contribution**: Normalizes all vectors to unit norm on a hypersphere. Each layer contributes a displacement on the surface.
+- **Relevance**: Directly relevant to &#34;fixed vector walks&#34; encoding scheme — where magnitude and direction encode information. nGPT constrains representations to a hypersphere, making direction the primary information carrier.
+
+### Paper 13: The Steganographic Potentials of Language Models (2025)
+- **ArXiv**: 2505.03439
+- **Key Contribution**: Shows LLMs can develop covert encoding schemes through RL fine-tuning.
+- **Relevance**: Relevant to understanding how information can be encoded in token sequences using vocabulary-level encoding schemes.
+
+### Paper 14: A Watermark for Large Language Models (Kirchenbauer et al., 2023)
+- **ArXiv**: 2301.10226
+- **Key Contribution**: Encodes bits into generated text by partitioning vocabulary into &#34;green&#34; and &#34;red&#34; lists and biasing generation toward green tokens.
+- **Relevance**: Demonstrates a practical vocabulary-based encoding scheme that hides information in token selections — relevant to understanding bits-per-token capacity of vocabulary encoding.
+
+### Paper 15: Linear Representation Hypothesis (Park et al., 2023)
+- **ArXiv**: 2311.03658
+- **Key Contribution**: Formalizes that high-level concepts are represented as linear directions in LLM representation space.
+- **Relevance**: If concepts are linear directions, the capacity of a hidden state is bounded by how many near-orthogonal directions can fit in d dimensions — connecting to compressed sensing theory.
+
+### Paper 16: Representation Engineering (Zou et al., 2023)
+- **ArXiv**: 2310.01405
+- **Key Contribution**: Reads and controls hidden state representations for safety properties (honesty, harmlessness). Shows concepts are encoded as directions.
+- **Relevance**: Demonstrates that specific semantic concepts can be encoded/decoded from hidden state directions, providing evidence for directional encoding capacity.
+
+---
+
+## Common Methodologies
+
+- **Per-sample optimization**: Optimize trainable vectors to encode text, use frozen LLM as decoder (Kuratov et al.)
+- **Probing classifiers**: Train linear/affine probes on hidden states to predict linguistic properties
+- **Logit lens / Tuned lens**: Apply unembedding matrix (possibly with learned affine transform) to decode hidden states
+- **Causal intervention**: Transplant hidden states between contexts to test what information transfers
+- **Sparse autoencoders**: Decompose hidden states into interpretable features, revealing superposition
+- **Information-theoretic analysis**: Measure mutual information, cross-entropy reduction, MDL
+
+## Standard Baselines
+- Logit lens (raw unembedding) vs. tuned lens (learned affine + unembedding)
+- Linear probes vs. nonlinear probes
+- Bigram/n-gram baselines for prediction tasks
+- Theoretical capacity bounds: d_model × b / log2|V|
+- Standard compression algorithms (zlib, bz2, arithmetic coding)
+
+## Evaluation Metrics
+- **Token-level accuracy**: Fraction of correctly decoded tokens
+- **Information Gain / CE-reduction**: Bits of cross-entropy reduced by the encoding
+- **Precision@k**: Top-k accuracy for predicted tokens
+- **Surprisal**: Negative log probability of top predicted token
+- **KL divergence**: Between probe output and model output
+- **Capacity utilization**: Empirical capacity / theoretical maximum
+
+## Datasets in the Literature
+- **PG-19**: Public domain books from Project Gutenberg (Kuratov et al., Belrose et al.)
+- **The Pile**: 825GB diverse text corpus (Future Lens, tuned lens evaluation)
+- **GovReport**: Government reports (Kuratov et al., for compressed vector structure analysis)
+- **Random word sequences**: From GloVe vocabulary (Kuratov et al.)
+- **AO3 Fanfics**: Post-training-cutoff fanfiction texts (Kuratov et al.)
+
+## Gaps and Opportunities
+1. **Encoding scheme comparison**: No systematic comparison of ASCII, vocabulary, vector walk, and unembedding-based encoding schemes for the same model
+2. **Decoder choice impact**: How much does decoder complexity (identity, linear, affine, transformer layer) affect measured capacity?
+3. **Quantization effects**: How does reducing precision (fp32 → fp16 → int8) affect practical capacity?
+4. **Architecture comparison**: Limited comparison across architectures (transformer, SSM, RNN) for same task
+5. **Superposition-aware encoding**: Can knowledge of superposition geometry enable better encoding?
+
+## Recommendations for Our Experiment
+
+Based on literature review:
+- **Primary dataset**: PG-19 (well-established, used by key prior work, publicly available)
+- **Secondary dataset**: Random token sequences (controls for model language knowledge)
+- **Recommended baselines**:
+  - Theoretical capacity bound (d × b / log2|V|)
+  - Logit lens (raw unembedding)
+  - Tuned lens (learned affine + unembedding)
+  - Per-sample [mem] vector optimization (Kuratov method)
+  - ASCII bit encoding
+  - Vocabulary-based encoding
+- **Recommended metrics**: Token accuracy, information gain (CE-reduction), capacity utilization ratio
+- **Recommended models**: Pythia suite (160M-2.8B) for scaling analysis, Llama-3.2-1B for main experiments
+- **Key tools**: TransformerLens, nnsight, hidden_capacity codebase
+
+
+════════════════════════════════════════════════════════════════════════════════
+                          PAPER REQUIREMENTS
+════════════════════════════════════════════════════════════════════════════════
+
+Generate a complete academic paper with the following structure:
+
+1. TITLE
+   - Clear, specific, informative
+   - Should convey main finding or contribution
+
+2. AUTHOR
+   - Use this exact author line in the \author{} block: Ari Holtzman and NeuriCo
+
+3. ABSTRACT (150-250 words)
+   - Problem statement
+   - Approach
+   - Key results
+   - Significance
+
+4. INTRODUCTION
+   - Research problem and motivation
+   - Gap in existing work
+   - Our contribution (be specific)
+   - Paper organization
+
+5. RELATED WORK
+   - Organized by theme/approach
+   - Position our work relative to prior work
+   - Cite papers from literature review
+
+6. METHODOLOGY
+   - Clear description of approach
+   - Experimental setup
+   - Datasets used
+   - Evaluation metrics
+   - Baselines
+
+7. RESULTS
+   - Present results with tables and figures
+   - Statistical analysis
+   - Comparison to baselines
+   - Ablation studies (if applicable)
+
+8. DISCUSSION
+   - Interpretation of results
+   - Limitations
+   - Broader implications
+
+9. CONCLUSION
+   - Summary of contributions
+   - Key findings
+   - Future work
+
+10. REFERENCES
+   - BibTeX format
+   - All cited papers
+
+════════════════════════════════════════════════════════════════════════════════
+                          OUTPUT FORMAT
+════════════════════════════════════════════════════════════════════════════════
+
+Create a MODULAR LaTeX project with the following directory structure:
+
+paper_draft/
+├── main.tex              # Main file that imports all sections
+├── references.bib        # BibTeX references
+├── sections/
+│   ├── abstract.tex      # Abstract content
+│   ├── introduction.tex  # Introduction section
+│   ├── related_work.tex  # Related work section
+│   ├── methodology.tex   # Methodology section
+│   ├── results.tex       # Results section
+│   ├── discussion.tex    # Discussion section
+│   └── conclusion.tex    # Conclusion section
+├── figures/              # Directory for any generated figures
+├── tables/               # Directory for complex standalone tables
+└── appendix/             # Directory for appendix sections (if needed)
+
+INSTRUCTIONS:
+1. First, create the directory structure above (mkdir -p paper_draft/sections paper_draft/figures paper_draft/tables paper_draft/appendix)
+2. Write main.tex using the EXACT preamble for NEURIPS:
+
+   \documentclass{article}
+   \usepackage[final]{neurips_2025}  % NEURIPS style (neurips_2025.sty is in paper_draft/)
+   \usepackage[hidelinks]{hyperref}  % REQUIRED: clickable links
+   \usepackage{booktabs}  % REQUIRED: professional tables
+   \usepackage{graphicx}
+   \usepackage{amsmath,amssymb}
+
+   % Import command files
+   \input{commands/math}
+   \input{commands/general}
+   \input{commands/macros}
+
+   % Use this bibliography style:
+   \bibliographystyle{plainnat}
+
+   \author{Ari Holtzman and NeuriCo}
+
+   - Use \input{sections/...} to include each section
+   - Use \bibliography{references} for references
+3. Write each section file with COMPLETE content (no placeholders)
+4. Each section file should include its \section{} command
+5. Write references.bib with all citations in BibTeX format
+6. After writing all files, compile the paper:
+   cd paper_draft && pdflatex -interaction=nonstopmode main.tex && bibtex main && pdflatex -interaction=nonstopmode main.tex && pdflatex -interaction=nonstopmode main.tex
+
+This modular structure allows humans to easily:
+- Edit individual sections without navigating a large file
+- Track changes per section
+- Reuse sections across different paper versions
+
+════════════════════════════════════════════════════════════════════════════════
+                          QUALITY REQUIREMENTS
+════════════════════════════════════════════════════════════════════════════════
+
+- Academic tone throughout
+- All claims must be supported by data from the experiment report
+- Proper citations using \cite{} commands
+- Clear figures and tables with proper captions
+- NO placeholder text - every section must have real content
+- The paper MUST compile without errors
+- If compilation fails, debug and fix the LaTeX errors
+
+════════════════════════════════════════════════════════════════════════════════
+                          LAB WRITING STYLE
+════════════════════════════════════════════════════════════════════════════════
+
+Follow these lab-specific conventions to match our paper style:
+
+1. LANGUAGE STYLE:
+   - Use active voice: "We propose", "We examine", "We focus on"
+   - Be direct and confident: "Our main question is...", "We hypothesize that..."
+   - State things clearly and simply - prefer plain language over jargon
+   - Use bold questions as paragraph organizers: {\bf what is X?}
+   - Include specific quantitative claims: "8.97% over baseline"
+   - Avoid fancy wording: "utilize" → "use", "facilitate" → "help"
+
+2. INTRODUCTION STRUCTURE:
+   - Engaging hook (get to the point quickly)
+   - Problem importance
+   - Gap identification
+   - Your approach with method figure reference
+   - Quantitative preview of results
+   - Contribution bullets (3-4 items, action verbs)
+
+3. CONTRIBUTION LISTS:
+   \begin{itemize}[leftmargin=*,itemsep=0pt,topsep=0pt]
+       \item We propose...
+       \item We conduct...
+       \item We complement...
+   \end{itemize}
+
+4. MODULAR COMMANDS STRUCTURE:
+   Command templates are pre-copied to paper_draft/commands/:
+   - math.tex: Math notation macros
+   - general.tex: Formatting macros
+   - macros.tex: Project-specific term definitions (customize this for your paper)
+
+   In main.tex, include:
+   \input{commands/math}
+   \input{commands/general}
+   \input{commands/macros}
+
+5. REFERENCE CONVENTIONS:
+   Use reference macros from math.tex:
+   - \figref{fig:name} for "figure 1" (lowercase, in-sentence)
+   - \Figref{fig:name} for "Figure 1" (capitalized, start of sentence)
+   - \secref{sec:name} for "section 2"
+
+6. TEXT FORMATTING:
+   - Use \para{Header text} for bold paragraph headers
+   - Define method/dataset names with \textsc and \xspace:
+     \newcommand{\methodname}{\textsc{MethodName}\xspace}
+
+7. TABLE FORMATTING:
+   - Use booktabs package (no vertical lines)
+   - Use \resizebox{\textwidth}{!}{...} for wide tables
+   - Use @{} to remove padding at table edges
+   - Use \cmidrule(lr){x-y} for sub-headers
+   - Use \textsc{} for dataset/method names in headers
+   - Bold best results with {\bf ...}
+
+8. FIGURE FORMATTING:
+   - Use 0.32\textwidth for 3-column subfigures
+   - Use 0.95\linewidth for full-width figures
+   - Use \input{figures/legend} for shared legends
+   - Write self-contained captions explaining key observations
+
+9. RESULTS PRESENTATION:
+   - Define \increase and \decrease for colored arrows (green up, red down)
+   - Bold best results in tables
+   - Report confidence intervals when available
+
+10. ALGORITHM STYLING:
+    - Use algpseudocode with [noend]
+    - Use \triangleright for comments
+
+11. HYPERLINKS (REQUIRED):
+    - Always use \usepackage[hidelinks]{hyperref} or with colored links
+    - All citations, section refs, figure refs, table refs must be clickable
+    - This is essential for reader navigation
+
+════════════════════════════════════════════════════════════════════════════════
+                          WORKFLOW: REVIEW AND REFLECT
+════════════════════════════════════════════════════════════════════════════════
+
+Before calling finish, you MUST complete these review steps:
+
+1. REVIEW RESOURCES (at the start):
+   - Read .claude/skills/paper-writer/SKILL.md for detailed guidance
+   - Study templates/paper_writing/lab_style_guide.md for style conventions
+   - Browse paper_examples/ for formatting and language patterns
+
+2. SELF-REFLECTION (before finishing):
+   After writing all sections, review your work against these criteria:
+
+   LANGUAGE CHECK:
+   - [ ] Is the writing clear and jargon-free?
+   - [ ] Are claims specific with quantitative support?
+   - [ ] Is active voice used throughout?
+
+   FORMATTING CHECK:
+   - [ ] Does main.tex include \input{commands/math}, \input{commands/general}, \input{commands/macros}?
+   - [ ] Is hyperref package included for clickable references?
+   - [ ] Do tables use booktabs (no vertical lines)?
+   - [ ] Are best results bolded in tables?
+   - [ ] Are figures/tables properly captioned?
+
+   STRUCTURE CHECK:
+   - [ ] Does introduction follow: hook → importance → gap → approach → preview → contributions?
+   - [ ] Are contribution bullets specific with action verbs?
+   - [ ] Does the paper compile without errors?
+
+3. FIX ISSUES:
+   - Address any issues found in the self-reflection
+   - Re-compile and verify the PDF looks correct
+
+Only after completing this review should you consider the paper finished.

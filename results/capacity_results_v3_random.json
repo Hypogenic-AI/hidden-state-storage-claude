@@ -1,0 +1,293 @@
+{
+  "model": "gpt2",
+  "d_model": 768,
+  "vocab_size": 50257,
+  "max_pos": 1024,
+  "unembed_subspace_random": {
+    "n1": {
+      "n_tokens": 1,
+      "dims_per_token": 768,
+      "accuracy": 1.0,
+      "bits_stored": 15.6
+    },
+    "n5": {
+      "n_tokens": 5,
+      "dims_per_token": 153,
+      "accuracy": 1.0,
+      "bits_stored": 78.1
+    },
+    "n10": {
+      "n_tokens": 10,
+      "dims_per_token": 76,
+      "accuracy": 1.0,
+      "bits_stored": 156.2
+    },
+    "n20": {
+      "n_tokens": 20,
+      "dims_per_token": 38,
+      "accuracy": 1.0,
+      "bits_stored": 312.3
+    },
+    "n50": {
+      "n_tokens": 50,
+      "dims_per_token": 15,
+      "accuracy": 1.0,
+      "bits_stored": 780.9
+    },
+    "n100": {
+      "n_tokens": 100,
+      "dims_per_token": 7,
+      "accuracy": 1.0,
+      "bits_stored": 1561.7
+    },
+    "n200": {
+      "n_tokens": 200,
+      "dims_per_token": 3,
+      "accuracy": 1.0,
+      "bits_stored": 3123.4
+    },
+    "n384": {
+      "n_tokens": 384,
+      "dims_per_token": 2,
+      "accuracy": 0.2917,
+      "bits_stored": 1749.1
+    },
+    "n500": {
+      "n_tokens": 500,
+      "dims_per_token": 1,
+      "accuracy": 0.004,
+      "bits_stored": 31.2
+    },
+    "n768": {
+      "n_tokens": 768,
+      "dims_per_token": 1,
+      "accuracy": 0.0039,
+      "bits_stored": 46.9
+    }
+  },
+  "one_layer_random": {
+    "L0_n10": {
+      "layer": 0,
+      "n_tokens": 10,
+      "accuracy": 1.0,
+      "bits_stored": 156.2
+    },
+    "L0_n50": {
+      "layer": 0,
+      "n_tokens": 50,
+      "accuracy": 0.14,
+      "bits_stored": 109.3
+    },
+    "L0_n100": {
+      "layer": 0,
+      "n_tokens": 100,
+      "accuracy": 0.01,
+      "bits_stored": 15.6
+    },
+    "L0_n200": {
+      "layer": 0,
+      "n_tokens": 200,
+      "accuracy": 0.0,
+      "bits_stored": 0.0
+    },
+    "L0_n500": {
+      "layer": 0,
+      "n_tokens": 500,
+      "accuracy": 0.0,
+      "bits_stored": 0.0
+    },
+    "L0_n768": {
+      "layer": 0,
+      "n_tokens": 768,
+      "accuracy": 0.0,
+      "bits_stored": 0.0
+    },
+    "L6_n10": {
+      "layer": 6,
+      "n_tokens": 10,
+      "accuracy": 1.0,
+      "bits_stored": 156.2
+    },
+    "L6_n50": {
+      "layer": 6,
+      "n_tokens": 50,
+      "accuracy": 0.18,
+      "bits_stored": 140.6
+    },
+    "L6_n100": {
+      "layer": 6,
+      "n_tokens": 100,
+      "accuracy": 0.03,
+      "bits_stored": 46.9
+    },
+    "L6_n200": {
+      "layer": 6,
+      "n_tokens": 200,
+      "accuracy": 0.005,
+      "bits_stored": 15.6
+    },
+    "L6_n500": {
+      "layer": 6,
+      "n_tokens": 500,
+      "accuracy": 0.0,
+      "bits_stored": 0.0
+    },
+    "L6_n768": {
+      "layer": 6,
+      "n_tokens": 768,
+      "accuracy": 0.0013,
+      "bits_stored": 15.6
+    },
+    "L11_n10": {
+      "layer": 11,
+      "n_tokens": 10,
+      "accuracy": 1.0,
+      "bits_stored": 156.2
+    },
+    "L11_n50": {
+      "layer": 11,
+      "n_tokens": 50,
+      "accuracy": 0.24,
+      "bits_stored": 187.4
+    },
+    "L11_n100": {
+      "layer": 11,
+      "n_tokens": 100,
+      "accuracy": 0.05,
+      "bits_stored": 78.1
+    },
+    "L11_n200": {
+      "layer": 11,
+      "n_tokens": 200,
+      "accuracy": 0.02,
+      "bits_stored": 62.5
+    },
+    "L11_n500": {
+      "layer": 11,
+      "n_tokens": 500,
+      "accuracy": 0.0,
+      "bits_stored": 0.0
+    },
+    "L11_n768": {
+      "layer": 11,
+      "n_tokens": 768,
+      "accuracy": 0.0013,
+      "bits_stored": 15.6
+    }
+  },
+  "full_model_random": {
+    "n10": {
+      "n_tokens": 10,
+      "accuracy": 1.0,
+      "tokens_correct": 10,
+      "bits_stored": 156.2,
+      "bits_per_dim": 0.2
+    },
+    "n50": {
+      "n_tokens": 50,
+      "accuracy": 0.74,
+      "tokens_correct": 37,
+      "bits_stored": 577.8,
+      "bits_per_dim": 0.75
+    },
+    "n100": {
+      "n_tokens": 100,
+      "accuracy": 0.1,
+      "tokens_correct": 9,
+      "bits_stored": 156.2,
+      "bits_per_dim": 0.2
+    },
+    "n200": {
+      "n_tokens": 200,
+      "accuracy": 0.055,
+      "tokens_correct": 10,
+      "bits_stored": 171.8,
+      "bits_per_dim": 0.22
+    },
+    "n300": {
+      "n_tokens": 300,
+      "accuracy": 0.0067,
+      "tokens_correct": 2,
+      "bits_stored": 31.2,
+      "bits_per_dim": 0.04
+    },
+    "n500": {
+      "n_tokens": 500,
+      "accuracy": 0.0,
+      "tokens_correct": 0,
+      "bits_stored": 0.0,
+      "bits_per_dim": 0.0
+    },
+    "n700": {
+      "n_tokens": 700,
+      "accuracy": 0.0,
+      "tokens_correct": 0,
+      "bits_stored": 0.0,
+      "bits_per_dim": 0.0
+    },
+    "n900": {
+      "n_tokens": 900,
+      "accuracy": 0.0,
+      "tokens_correct": 0,
+      "bits_stored": 0.0,
+      "bits_per_dim": 0.0
+    },
+    "n1023": {
+      "n_tokens": 1023,
+      "accuracy": 0.001,
+      "tokens_correct": 0,
+      "bits_stored": 15.6,
+      "bits_per_dim": 0.02
+    }
+  },
+  "multi_mem_scaling": {
+    "mem1": {
+      "n_mem_vectors": 1,
+      "n_tokens": 500,
+      "total_params": 768,
+      "accuracy": 0.002,
+      "bits_stored": 15.6,
+      "bits_per_param": 0.02
+    },
+    "mem2": {
+      "n_mem_vectors": 2,
+      "n_tokens": 500,
+      "total_params": 1536,
+      "accuracy": 0.008,
+      "bits_stored": 62.5,
+      "bits_per_param": 0.04
+    },
+    "mem4": {
+      "n_mem_vectors": 4,
+      "n_tokens": 500,
+      "total_params": 3072,
+      "accuracy": 0.092,
+      "bits_stored": 718.4,
+      "bits_per_param": 0.23
+    },
+    "mem8": {
+      "n_mem_vectors": 8,
+      "n_tokens": 500,
+      "total_params": 6144,
+      "accuracy": 0.308,
+      "bits_stored": 2405.0,
+      "bits_per_param": 0.39
+    },
+    "mem16": {
+      "n_mem_vectors": 16,
+      "n_tokens": 500,
+      "total_params": 12288,
+      "accuracy": 0.724,
+      "bits_stored": 5653.4,
+      "bits_per_param": 0.46
+    },
+    "mem32": {
+      "n_mem_vectors": 32,
+      "n_tokens": 500,
+      "total_params": 24576,
+      "accuracy": 0.994,
+      "bits_stored": 7761.7,
+      "bits_per_param": 0.32
+    }
+  }
+}

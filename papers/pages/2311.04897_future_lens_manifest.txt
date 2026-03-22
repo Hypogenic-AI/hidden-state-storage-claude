@@ -1,0 +1,8 @@
+PDF: /workspaces/hidden-state-storage-claude/papers/2311.04897_future_lens.pdf
+Total pages: 13
+Pages per chunk: 5
+
+Chunks:
+  2311.04897_future_lens_chunk_001.pdf: pages 1-5
+  2311.04897_future_lens_chunk_002.pdf: pages 6-10
+  2311.04897_future_lens_chunk_003.pdf: pages 11-13

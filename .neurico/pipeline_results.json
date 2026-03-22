@@ -1,0 +1,27 @@
+{
+  "success": true,
+  "stages": {
+    "resource_finder": {
+      "success": true,
+      "completion_marker": "/workspaces/hidden-state-storage-claude/.resource_finder_complete",
+      "outputs": {
+        "literature_review": "/workspaces/hidden-state-storage-claude/literature_review.md",
+        "resources_catalog": "/workspaces/hidden-state-storage-claude/resources.md",
+        "papers_dir": "/workspaces/hidden-state-storage-claude/papers",
+        "datasets_dir": "/workspaces/hidden-state-storage-claude/datasets",
+        "code_dir": "/workspaces/hidden-state-storage-claude/code"
+      },
+      "log_file": "/workspaces/hidden-state-storage-claude/logs/resource_finder_claude.log",
+      "transcript_file": "/workspaces/hidden-state-storage-claude/logs/resource_finder_claude_transcript.jsonl",
+      "elapsed_time": 1136.240085363388
+    },
+    "experiment_runner": {
+      "success": true,
+      "return_code": 0,
+      "elapsed_time": 9363.962874174118,
+      "log_file": "/workspaces/hidden-state-storage-claude/logs/execution_claude.log",
+      "transcript_file": "/workspaces/hidden-state-storage-claude/logs/execution_claude_transcript.jsonl"
+    }
+  },
+  "work_dir": "/workspaces/hidden-state-storage-claude"
+}

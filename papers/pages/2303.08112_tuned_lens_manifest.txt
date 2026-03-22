@@ -1,0 +1,10 @@
+PDF: /workspaces/hidden-state-storage-claude/papers/2303.08112_tuned_lens.pdf
+Total pages: 25
+Pages per chunk: 5
+
+Chunks:
+  2303.08112_tuned_lens_chunk_001.pdf: pages 1-5
+  2303.08112_tuned_lens_chunk_002.pdf: pages 6-10
+  2303.08112_tuned_lens_chunk_003.pdf: pages 11-15
+  2303.08112_tuned_lens_chunk_004.pdf: pages 16-20
+  2303.08112_tuned_lens_chunk_005.pdf: pages 21-25

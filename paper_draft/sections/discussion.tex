@@ -1,0 +1,44 @@
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{The Decoder--Capacity Tradeoff}
+
+Our results reveal a clear tradeoff between decoder complexity and measured capacity. Simpler encoding schemes store more raw bits: \asciienc achieves 32 $\bpd$, while the full model decoder achieves only 0.75 $\bpd$ from a single vector. However, this comparison is misleading in isolation. Model-based decoders leverage the transformer's learned structure to convert a compact input signal into a long, coherent token sequence. The \memvec vector does not need to store each token independently---it stores a compressed representation that the model expands through its knowledge of language structure. With natural text, this advantage is dramatic: a single vector recovers 1,023 tokens versus $\sim$37 random tokens.
+
+This tradeoff has a natural information-theoretic interpretation. The mutual information between the \memvec vector and the output sequence is bounded by the entropy of the vector ($768 \times 32$ bits at fp32). But the \emph{conditional} mutual information $I(\memvec; \vy \mid \gM)$, given the frozen model $\gM$, can be much larger than $I(\memvec; \vy)$ without the model, because the model's parameters carry information about likely token sequences. The model acts as a shared codebook between encoder and decoder, enabling efficient compression.
+
+\subsection{Why Model-Based Decoders Underperform Raw Capacity}
+
+Three factors explain why the full model decoder stores far less than the theoretical maximum:
+
+\para{The softmax bottleneck.} The unembedding matrix $\mW_U$ has rank $\dmodel = 768$, while the vocabulary has 50,257 entries \citep{yang2018breaking}. This rank deficiency limits the expressiveness of hidden-state-to-vocabulary mappings. No single hidden state can represent an arbitrary joint distribution over token positions.
+
+\para{Position ambiguity.} Broadcasting a single \memvec vector to all positions provides identical input at every position. Only position embeddings differentiate positions, but these are additive and of limited capacity. The 12 layers of self-attention partially overcome this limitation by creating position-dependent representations, but a single input vector fundamentally constrains the diversity of outputs.
+
+\para{Attention collapse.} With identical inputs at all positions, the self-attention mechanism computes nearly identical query-key products everywhere. While position embeddings break this symmetry, the resulting attention patterns are far less diverse than those produced by genuine text, limiting the model's ability to route different information to different positions.
+
+\subsection{The 3-Dimension Threshold}
+
+The sharp transition from 100\% to 29.2\% accuracy between 3 and 2 dimensions per token in the unembedding decoder (\tabref{tab:unembed}) reflects the geometry of the embedding space. With 50,257 token embeddings in 768 dimensions, the embeddings are not uniformly distributed but cluster by semantic similarity. A 3-dimensional projection provides enough degrees of freedom for the learned linear map $\mP$ to navigate to the correct embedding neighborhood. At 2 dimensions, the projection cannot reliably separate 50,257 candidates---the effective ``angular resolution'' in 2D is insufficient for the vocabulary size.
+
+\subsection{Why Superposition Fails for Token IDs}
+
+Superposition works for sparse binary features because: (1) most features are zero, so interference is low; (2) feature values are bounded ($\{0, 1\}$), preventing magnitude-based interference; and (3) approximate recovery suffices. Token IDs violate all three conditions: they are dense (every position has a non-zero ID), high-magnitude (values up to 50,256), and require exact recovery (the nearest token ID may be semantically unrelated). The pseudo-inverse recovery $\hat{\vt} = \mA^+ \mA \vt$ introduces rounding errors that are catastrophic when the signal-to-noise ratio is this low.
+
+\subsection{Comparison to Prior Work}
+
+Our results are consistent with \citet{kuratov2025cramming} after accounting for model size. Their Llama-3.1-8B ($d = 4{,}096$, fp16) achieved 1,568 tokens on natural text, with a theoretical bound of 1,931 tokens. Our \gptwo ($d = 768$, fp32) achieves 1,023 tokens on (highly repetitive) natural text, with a theoretical bound of 1,574 tokens. The lower utilization for \gptwo likely reflects the smaller model's weaker language prior, which provides less ``free'' information to the decoder.
+
+Our peak efficiency of 0.46 $\bpp$ at 16 \memvec vectors is lower than the 5--30\% utilization reported by \citet{kuratov2025cramming}. This may reflect both the smaller model size and our use of uniformly random tokens (maximum entropy), which represent the hardest encoding task.
+
+\subsection{Limitations}
+
+\para{Model scale.} We test only \gptwo small ($d = 768$). Larger models (\eg Llama-3.1-8B, $d = 4{,}096$) have more dimensions and stronger language priors, likely yielding higher utilization rates.
+
+\para{Optimization budget.} We use 5,000 optimization steps with Adam and cosine scheduling. Longer optimization (10K--50K steps) with warm restarts may improve model-based decoder results.
+
+\para{Single random seed.} Most experiments use a single seed (42). While the encoding schemes are deterministic and the random tokens are fixed, optimization-based methods (schemes 4--5) may show variance across random initializations.
+
+\para{Repetitive natural text.} Our natural text experiments use highly repetitive input ($\sim$11 unique tokens), inflating apparent capacity. Diverse natural text (\eg Wikipedia, books) would show intermediate capacity between our repetitive and random token results.
+
+\para{Position embedding limit.} \gptwo supports at most 1,024 positions, capping the maximum sequence length we can test.

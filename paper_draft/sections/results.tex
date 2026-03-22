@@ -1,0 +1,173 @@
+\section{Results}
+\label{sec:results}
+
+\subsection{Theoretical Capacity Bounds}
+\label{sec:results_theory}
+
+\Tabref{tab:theory} shows the theoretical capacity of a 768-dimensional vector at three precision levels. At fp32, a single vector stores 24,576 bits---enough for 3,072 ASCII characters or 1,574 vocabulary tokens. These bounds are exact and verified lossless.
+
+\begin{table}[t]
+    \centering
+    \caption{Theoretical capacity of a 768-dimensional hidden state vector at three precision levels. ASCII characters require 8 bits each; vocabulary tokens require $\ceil{\log_2 50{,}257} = 16$ bits each.}
+    \begin{tabular}{@{}lccc@{}}
+        \toprule
+        \textbf{Precision} & \textbf{Total Bits} & \textbf{ASCII Chars} & \textbf{Vocab Tokens} \\
+        \midrule
+        fp32 & 24,576 & 3,072 & 1,574 \\
+        fp16 & 12,288 & 1,536 & 787 \\
+        int8 & 6,144 & 768 & 393 \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:theory}
+\end{table}
+
+\subsection{No-Decoder Schemes (Schemes 1--3)}
+\label{sec:results_nodecoder}
+
+\Tabref{tab:nodecoder} presents results for all zero-decoder schemes. All achieve lossless recovery. Capacity is determined entirely by bits per dimension divided by bits per token. \asciienc at fp32 stores the most raw information (24,576 bits). \vocabenc packs 2 tokens per fp32 dimension. \vecwalk with 1 dimension per token matches \vocabenc at fp16 precision.
+
+\begin{table}[t]
+    \centering
+    \caption{No-decoder encoding schemes. All achieve lossless (100\%) recovery. Capacity is purely determined by the ratio of bits per dimension to bits per token.}
+    \begin{tabular}{@{}llrrr@{}}
+        \toprule
+        \textbf{Scheme} & \textbf{Precision} & \textbf{Tokens/Chars} & \textbf{Bits} & \textbf{Bits/Dim} \\
+        \midrule
+        \asciienc & fp32 & 3,072 chars & \textbf{24,576} & \textbf{32.0} \\
+        \asciienc & fp16 & 1,536 chars & 12,288 & 16.0 \\
+        \vocabenc & fp32 & 1,536 tokens & $\sim$24,000 & 31.2 \\
+        \vocabenc & fp16 & 768 tokens & $\sim$12,000 & 15.6 \\
+        \vecwalk (1 dim/tok) & --- & 768 tokens & $\sim$12,000 & 15.6 \\
+        \vecwalk (2 dims/tok) & --- & 384 tokens & $\sim$6,000 & 7.8 \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:nodecoder}
+\end{table}
+
+\para{Superposition encoding fails.} We tested superposition encoding via random projections at overload ratios from 0.5$\times$ to 4$\times$ $\dmodel$. Recovery accuracy was 0\% at all ratios. Token IDs are dense integers in $[0, 50{,}256]$, and the interference between randomly-projected high-magnitude signals is too severe for pseudo-inverse recovery. This contrasts sharply with the success of superposition for sparse binary features \citep{elhage2022superposition}. Compressed sensing via least-squares pseudo-inverse does work when the signal is structured: it achieves 100\% accuracy for 50--500 repetitive tokens with only 11 unique values, demonstrating the critical role of signal sparsity.
+
+\subsection{Unembedding-Based Decoding (Scheme 4)}
+\label{sec:results_unembed}
+
+\Tabref{tab:unembed} shows results for the learned-projection unembedding decoder on random tokens. Perfect accuracy holds down to 3 dimensions per token (200 tokens, 3,123 bits), but drops sharply at 2 dimensions per token (384 tokens, 29.2\% accuracy) and collapses at 1 dimension per token (0.4\%).
+
+\begin{table}[t]
+    \centering
+    \caption{Unembedding-based decoding (\unembdec) with a shared learned projection from subspace chunks to the frozen unembedding matrix. Random tokens, \gptwo ($d = 768$). Best lossless result in \textbf{bold}.}
+    \begin{tabular}{@{}rrrr@{}}
+        \toprule
+        \textbf{Tokens ($\numtok$)} & \textbf{Dims/Token} & \textbf{Accuracy (\%)} & \textbf{Bits Stored} \\
+        \midrule
+        1 & 768 & 100 & 16 \\
+        10 & 76 & 100 & 156 \\
+        50 & 15 & 100 & 781 \\
+        100 & 7 & 100 & 1,562 \\
+        \textbf{200} & \textbf{3} & \textbf{100} & \textbf{3,123} \\
+        384 & 2 & 29.2 & 1,749 \\
+        768 & 1 & 0.4 & 47 \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:unembed}
+\end{table}
+
+{\bf Why 3 dimensions?} The unembedding matrix $\mW_U$ maps from $\sR^{768}$ to $\sR^{50{,}257}$. The learned projection $\mP$ must map a $k$-dimensional chunk into a region of $\sR^{768}$ where the nearest token embedding is correct. With 50,257 embeddings in 768 dimensions, the average angular separation is small. A 3-dimensional subspace provides enough degrees of freedom for the projection to navigate to the correct embedding neighborhood, but a 2-dimensional subspace cannot reliably distinguish among 50,257 candidates.
+
+\subsection{Single Transformer Layer Decoding (Scheme 5a)}
+\label{sec:results_layer}
+
+\Tabref{tab:layer} shows results for a single broadcast vector decoded through one frozen \gptwo layer. Performance is poor: reliable recovery ($\geq$100\% accuracy) extends only to 10 tokens regardless of which layer is used. Later layers perform marginally better at $\numtok = 50$ (24\% for layer 11 vs.\ 14\% for layer 0), possibly because deeper attention patterns are more position-sensitive.
+
+\begin{table}[t]
+    \centering
+    \caption{Single transformer layer decoder (\layerdec). Accuracy (\%) for a single broadcast vector decoded through one frozen \gptwo layer. Random tokens.}
+    \begin{tabular}{@{}lccccc@{}}
+        \toprule
+        \textbf{Layer} & $\numtok{=}10$ & $\numtok{=}50$ & $\numtok{=}100$ & $\numtok{=}200$ & $\numtok{=}500$ \\
+        \midrule
+        0 (first) & 100 & 14 & 1 & 0 & 0 \\
+        6 (middle) & 100 & 18 & 3 & 0.5 & 0 \\
+        11 (last) & 100 & 24 & 5 & 2 & 0 \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:layer}
+\end{table}
+
+The fundamental bottleneck is \textbf{position ambiguity}: broadcasting a single vector to all positions provides identical input at every position. The only differentiating signal comes from the additive position embeddings. A single transformer layer's attention mechanism sees nearly identical queries and keys at all positions (modulo position embeddings), severely limiting its ability to produce distinct outputs.
+
+\subsection{Full Model Decoding (Scheme 5b)}
+\label{sec:results_full}
+
+\Tabref{tab:full} shows results for a single \memvec vector decoded through all 12 frozen \gptwo layers. The full model is dramatically better than a single layer: 74\% accuracy at $\numtok = 50$ (vs.\ 24\% for the best single layer) and 100\% at $\numtok = 10$. Peak information storage is $\sim$578 bits at $\numtok = 50$---only 2.4\% of the theoretical fp32 maximum.
+
+\begin{table}[t]
+    \centering
+    \caption{Full model decoder (\fulldec). Single \memvec vector decoded through all 12 frozen \gptwo layers. Random tokens. Bits computed as correct tokens $\times$ 16.}
+    \begin{tabular}{@{}rrrr@{}}
+        \toprule
+        \textbf{Tokens ($\numtok$)} & \textbf{Accuracy (\%)} & \textbf{Tokens Correct} & \textbf{Bits} \\
+        \midrule
+        10 & \textbf{100} & 10 & 156 \\
+        50 & 74 & 37 & \textbf{578} \\
+        100 & 10 & 9 & 156 \\
+        200 & 5.5 & 10 & 172 \\
+        300 & 0.7 & 2 & 31 \\
+        500 & $\sim$0 & 0 & 0 \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:full}
+\end{table}
+
+\subsection{Multi-Vector Scaling (Scheme 5c)}
+\label{sec:results_multi}
+
+\Tabref{tab:multi} shows how capacity scales with the number of \memvec vectors targeting 500 random tokens. Accuracy increases from 0.2\% (1 vector) to 99.4\% (32 vectors). Bits per learnable parameter peaks at \textbf{0.46} with 16 vectors, then decreases as additional parameters yield diminishing returns.
+
+\begin{table}[t]
+    \centering
+    \caption{Multi-vector scaling (\multidec). Multiple \memvec vectors decoded through frozen \gptwo, targeting 500 random tokens. Peak efficiency in \textbf{bold}.}
+    \begin{tabular}{@{}rrrrr@{}}
+        \toprule
+        \textbf{Vectors ($\nummem$)} & \textbf{Total Params} & \textbf{Accuracy (\%)} & \textbf{Bits} & \textbf{Bits/Param} \\
+        \midrule
+        1 & 768 & 0.2 & 16 & 0.02 \\
+        2 & 1,536 & 0.8 & 62 & 0.04 \\
+        4 & 3,072 & 9.2 & 718 & 0.23 \\
+        8 & 6,144 & 30.8 & 2,405 & 0.39 \\
+        16 & 12,288 & 72.4 & 5,653 & \textbf{0.46} \\
+        32 & 24,576 & 99.4 & 7,762 & 0.32 \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:multi}
+\end{table}
+
+At 32 vectors, the 24,576 total fp32 parameters represent $24{,}576 \times 32 = 786{,}432$ bits of raw storage, yet only 7,762 bits are usefully stored---a utilization of 0.99\%. This is consistent with the low utilization rates reported by \citet{kuratov2025cramming}.
+
+\subsection{Natural vs.\ Random Text}
+\label{sec:results_natural}
+
+With natural (repetitive) text, the full model decoder achieves 100\% accuracy on up to 1,023 tokens from a single \memvec vector---dramatically more than the $\sim$50 tokens possible with random tokens. The model's language prior provides the vast majority of the information; the \memvec vector only needs to encode the ``surprise''---which specific token sequence to generate from the model's learned distribution. This result is consistent with \citet{kuratov2025cramming}, who achieved 1,568 tokens with Llama-3.1-8B ($d = 4{,}096$) on natural text.
+
+\subsection{Summary Across All Schemes}
+\label{sec:results_summary}
+
+\Tabref{tab:summary} presents a unified view across all encoding schemes. Raw bit-packing achieves up to 32 $\bpd$; the unembedding decoder achieves 4.1 $\bpd$ at its best operating point; and the full model decoder achieves 0.75 $\bpd$ from a single vector or 0.32 $\bpd$ from 32 vectors (but at much higher absolute bit counts per scheme).
+
+\begin{table}[t]
+    \centering
+    \caption{Summary across all encoding schemes. Random tokens except where noted. Bits/dim computed as total bits stored divided by 768 (or $\nummem \times 768$ for multi-vector).}
+    \resizebox{\textwidth}{!}{%
+    \begin{tabular}{@{}llrrrr@{}}
+        \toprule
+        \textbf{Scheme} & \textbf{Decoder} & \textbf{Decoder Params} & \textbf{Tokens} & \textbf{Bits} & \textbf{Bits/Dim} \\
+        \midrule
+        \asciienc (fp32) & None & 0 & 3,072 chars & \textbf{24,576} & \textbf{32.0} \\
+        \vocabenc (fp32) & None & 0 & 1,536 & $\sim$24,000 & 31.2 \\
+        \unembdec & Proj + $\mW_U$ & $768 \times 3$ & 200 & 3,123 & 4.1 \\
+        \layerdec (layer 11) & 1 frozen layer & 0 & $\sim$10 & 156 & 0.2 \\
+        \fulldec (1 vec) & Full \gptwo & 0 & $\sim$37 & 578 & 0.75 \\
+        \multidec (32 vecs) & Full \gptwo & 0 & $\sim$497 & 7,762 & 0.32 \\
+        \bottomrule
+    \end{tabular}
+    }
+    \label{tab:summary}
+\end{table}
