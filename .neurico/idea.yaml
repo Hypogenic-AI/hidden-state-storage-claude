@@ -1,0 +1,32 @@
+idea:
+  title: How much can you store in a hidden state?
+  domain: nlp
+  hypothesis: 'The amount of information that can be stored in a hidden state varies
+    depending on the encoding scheme, such as ASCII encoding, LLM vocabulary encoding,
+    encoding via fixed vector walks (where magnitude and direction encode token and
+    position), use of unembeddings, or using a Transformer layer as a decoder.
+
+    '
+  background:
+    description: 'How much can you store in a hidden state if you encode things in
+      ascii?
+
+      What about if you use an LLM vocab?
+
+      What if you encode things through a fixed walk where the magnitude of the vector
+      reads off a token and the direction tells you the position?
+
+      What if you can use the unembeddings?
+
+      What if you can use one layer of the Transformer as a decoder?
+
+      '
+  metadata:
+    author: Ari Holtzman
+    source: IdeaHub
+    source_url: https://hypogenic.ai/ideahub/idea/Vj6sySyijVaJXqhfJywK
+    idea_id: how_much_can_you_store_in_a_hi_20260322_070525_abc9bb13
+    created_at: '2026-03-22T07:05:25.114447'
+    status: submitted
+    github_repo_name: hidden-state-storage-claude
+    github_repo_url: https://github.com/Hypogenic-AI/hidden-state-storage-claude
